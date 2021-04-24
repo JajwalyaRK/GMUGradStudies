@@ -1,0 +1,347 @@
+---
+title: "Text Analysis of Science books"
+author: "Jajwalya R. Karajgikar"
+output:
+  html_document: default
+  word_document: default
+---
+##Tidy Data
+Tidy text format is a table with one-token-per row. 
+Some of the packages used are dplyr (Wickham and Francois 2016), tidyr (Wickham 2016), ggplot2 (Wickham 2009). tm (Feinerer, Hornik, and Meyer 2008) and quanteda (Benoit and Nulty 2016) can also be used.
+
+
+
+
+#**************************************************************************
+#                  Analyzing a corpus of Science books
+#**************************************************************************
+#set working directory
+#setwd("replace directory here")
+#install and load the dplyr, tidytext, ggplot2, and gutenbergr library for text processing
+
+
+```{r}
+#install.packages("dplyr")
+#install.packages("tidytext")
+#install.packages("ggplot2")
+#install.packages("gutenbergr")
+```
+
+
+#**************************************************************************
+##                  Creating a corpus
+#**************************************************************************
+The gutenbergr package (Robinson 2016) provides access to the public domain works from the [Project Gutenberg](https://www.gutenberg.org/) collection including metadata. The function gutenberg_download() downloads one or more works from Project Gutenberg by ID.
+The texts 
+Discourse on Floating Bodies by Galileo Galilei
+Treatise on Light by Christiaan Huygens
+Experiments with Alternate Currents of High Potential and High Frequency by Nikola Tesla
+Relativity: The Special and General Theory by Albert Einstein
+used are physics classics written across a 300-year timespan, and some of them were first written in other languages and then translated to English.
+
+
+
+```{r}
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(gutenbergr)
+physics <- gutenberg_download(c(37729, 14725, 13476, 30155),
+                              meta_fields = "author")
+```
+
+
+
+#**************************************************************************
+##                  Pre-processing the corpus
+#**************************************************************************
+###How many times was each word used in each text?
+Unnest_tokens breaks the text into individual tokens and performs tokenization.
+dplyr’s count() finds the most common words in all the books as a whole.
+
+
+
+```{r}
+physics_words <- physics %>%
+  unnest_tokens(word, text) %>%
+  count(author, word, sort = TRUE)
+
+physics_words
+```
+
+These are the raw counts. The documents are all different lengths. 
+The term-frequency(tf) quantifies the frequently occurring terms. The inverse term-frequency(idf) decreases the weight for commonly used words and increases the weight for words that are not used very much in a collection of documents. The tf-idf together is a statistic to measure the frequency of a term adjusted for how rarely it is used. It measures how important a word is in the text.
+
+
+```{r}
+library(forcats)
+
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%
+  mutate(word = fct_reorder(word, tf_idf)) %>%
+  mutate(author = factor(author, levels = c("Galilei, Galileo",
+                                            "Huygens, Christiaan",
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+```
+
+
+
+
+```{r}
+
+plot_physics %>%
+  group_by(author) %>%
+  top_n(15, tf_idf) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(word, tf_idf, fill = author)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~author, ncol = 2, scales = "free") +
+  coord_flip()
+```
+
+
+
+
+#**************************************************************************
+##                  Removing specific stopwords from the corpus
+#**************************************************************************
+The filter() function narrows down the selected text.
+A custom list of stop words can be included with an anti_join() to remove them.
+
+
+```{r}
+library(stringr)
+data(stop_words)
+
+physics %>%
+  filter(str_detect(text, "_k_")) %>%
+  select(text)
+
+physics %>%
+  filter(str_detect(text, "RC")) %>%
+  select(text)
+
+mystopwords <- tibble(word = c("eq", "co", "rc", "ac", "ak", "bn",
+                               "fig", "file", "cg", "cb", "cm",
+                               "ab", "_k", "_k_", "_x"))
+
+physics_words <- anti_join(physics_words, mystopwords,
+                           by = "word") %>%
+  anti_join(stop_words)
+head(physics_words)
+```
+
+
+
+
+#**************************************************************************
+##                  Word cloud text frequency from the corpus
+#**************************************************************************
+The more number of times a specific word appears in a source of textual data, the bigger and bolder it appears in the word cloud.
+
+
+```{r}
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+
+physics_words %>%
+  count(word)
+
+wordcloud(physics_words$word, physics_words$n, min.freq = 50, max.words = 200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+      
+```
+
+
+
+
+
+```{r}
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%
+  mutate(word = str_remove_all(word, "_")) %>%
+  group_by(author) %>%
+  top_n(15, tf_idf) %>%
+  ungroup() %>%
+  mutate(word = reorder_within(word, tf_idf, author)) %>%
+  mutate(author = factor(author, levels = c("Galilei, Galileo",
+                                            "Huygens, Christiaan",
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+
+ggplot(plot_physics, aes(word, tf_idf, fill = author)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~author, ncol = 2, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+
+
+#**************************************************************************
+##                  N-grams analysis from the corpus
+#**************************************************************************
+
+N-grams help to understand the relationships between words.
+Bigrams require unnesting tokens by groups of two words occurring together the most.
+
+
+```{r}
+physics_bigrams <- physics %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+physics_bigrams
+```
+
+The most common bigrams from dplyr’s count(). 
+
+```{r}
+physics_bigrams%>%
+  count(bigram, sort = TRUE)
+```
+
+
+Removing the stop words requires tidyr’s separate() splits a column into multiple based on a delimiter into two columns, “word1” and “word2”, removing cases where either is a stop-word.
+
+
+```{r}
+library(tidyr)
+
+bigrams_separated <- physics_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigram_counts <- bigrams_filtered %>%
+  count(word1, word2, sort = TRUE)
+
+bigram_counts
+```
+
+
+tidyr’s unite() function recombines the columns into one.
+
+```{r}
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigrams_united
+```
+
+
+Trigrams are three consecutive terms occurring together frequently.
+
+```{r}
+physics %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) %>%
+  separate(trigram, c("word1", "word2", "word3"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !word3 %in% stop_words$word) %>%
+  count(word1, word2, word3, sort = TRUE)
+```
+
+
+Performing a tf-idf analysis of the bigrams.
+
+
+```{r}
+bigrams_filtered %>%
+  filter(word2 == "angle") %>%
+  count(author, word1, sort = TRUE)
+```
+
+
+
+```{r}
+bigram_tf_idf <- bigrams_united %>%
+  count(author, bigram) %>%
+  bind_tf_idf(bigram, author, n) %>%
+  arrange(desc(tf_idf))
+
+bigram_tf_idf
+```
+
+
+Visualizing the relationships is possible with network graphs.
+The source node is where the edge is originating from
+The target node is where the edge is terminating.
+The numeric value of the edge is the relationship strength value.
+The igraph package has many powerful functions for manipulating and analyzing networks. One way to create an igraph object from tidy data is the graph_from_data_frame() function, which takes a data frame of edges with columns for “from”, “to”, and edge attributes (in this case n).
+
+
+```{r}
+library(igraph)
+
+bigram_graph <- bigram_counts %>%
+  filter(n > 20) %>%
+  graph_from_data_frame()
+
+bigram_graph
+```
+
+
+The ggraph package (Pedersen 2017) converts an igraph object into a ggraph with the ggraph function.
+
+
+```{r}
+library(ggraph)
+set.seed(2000)
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+```
+
+
+
+We add the edge_alpha aesthetic to the link layer to make links transparent based on how common or rare the bigram is
+We add directionality with an arrow, constructed using grid::arrow(), including an end_cap option that tells the arrow to end before touching the node
+We tinker with the options to the node layer to make the nodes more attractive (larger, blue points)
+We add a theme that’s useful for plotting networks, theme_void()
+
+
+
+```{r}
+set.seed(2000)
+
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme_void()
+```
+
+
+
+#**************************************************************************
+#                    Citations
+#**************************************************************************
+
+Silge J. and Robinson D. (2017) Text Mining with R: A Tidy Approach (1st. ed.). O’Reilly Media, Inc.
+
+This project is heavily adapted from the [website](https://www.tidytextmining.com/) for Text Mining with R! Visit the [GitHub repository](https://github.com/dgrtwo/tidy-text-mining) for this site, find the [book at O’Reilly](http://shop.oreilly.com/product/0636920067153.do?cmp=af-strata-books-video-product_cj_0636920067153_4428796), or buy it on [https://www.amazon.com/gp/product/1491981652/ref=as_li_tl?ie=UTF8&tag=juliasilge-20&camp=1789&creative=9325&linkCode=as2&creativeASIN=1491981652&linkId=0e92d44b0aa39ab34608ffa582dbd490](Amazon).
+
+```{r}
+citation("dplyr")
+citation("tidytext")
+citation("ggplot2")
+citation("gutenbergr")
+citation("forcats")
+citation("stringr")
+citation("wordcloud")
+citation("tidyr")
+citation("igraph")
+citation("ggraph")
+```

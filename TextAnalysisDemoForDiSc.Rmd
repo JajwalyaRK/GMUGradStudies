@@ -1,0 +1,293 @@
+---
+title: "Text Analysis of Science books"
+author: "Jajwalya R. Karajgikar"  
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: menu
+    source_code: embed
+---
+#**************************************************************************
+#                  Analyzing a corpus of Science books
+#**************************************************************************
+#set working directory 
+#setwd("replace directory here")
+#install and load the dplyr, tidytext, ggplot2, and gutenbergr library for text processing
+```{r}
+#install.packages("dplyr")
+#install.packages("tidytext")
+#install.packages("ggplot2")
+#install.packages("gutenbergr")
+```
+#**************************************************************************
+#                  Creating a corpus
+#**************************************************************************
+```{r}
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(gutenbergr)
+physics <- gutenberg_download(c(37729, 14725, 13476, 30155), 
+                              meta_fields = "author")
+```
+
+#How many times was each word used in each text?
+
+```{r}
+data(stop_words)
+physics_words <- physics %>%
+  unnest_tokens(word, text) %>%
+  count(author, word, sort = TRUE) %>%
+  anti_join(stop_words)
+
+physics_words
+```
+
+
+
+```{r}
+library(forcats)
+
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%
+  mutate(word = fct_reorder(word, tf_idf)) %>%
+  mutate(author = factor(author, levels = c("Galilei, Galileo",
+                                            "Huygens, Christiaan", 
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+```
+
+Row {data-height=600}
+------------------------------------------------------------------------------
+
+### Chart 1
+```{r}
+
+plot_physics %>% 
+  group_by(author) %>% 
+  top_n(15, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(word, tf_idf, fill = author)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~author, ncol = 2, scales = "free") +
+  coord_flip()
+```
+
+
+
+
+```{r}
+library(stringr)
+
+physics %>% 
+  filter(str_detect(text, "_k_")) %>% 
+  select(text)
+
+physics %>% 
+  filter(str_detect(text, "RC")) %>% 
+  select(text)
+
+mystopwords <- tibble(word = c("eq", "co", "rc", "ac", "ak", "bn", 
+                               "fig", "file", "cg", "cb", "cm",
+                               "ab", "_k", "_k_", "_x"))
+
+physics_words <- anti_join(physics_words, mystopwords, 
+                           by = "word")
+head(physics_words)
+```
+
+```{r}
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+
+physics_words %>%
+  count(word) 
+
+wordcloud(physics_words$word, physics_words$n, min.freq = 50, max.words = 200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+      
+```
+Row {data-height=400}
+------------------------------------------------------------------------------
+
+### Chart 2
+```{r}
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%
+  mutate(word = str_remove_all(word, "_")) %>%
+  group_by(author) %>% 
+  top_n(15, tf_idf) %>%
+  ungroup() %>%
+  mutate(word = reorder_within(word, tf_idf, author)) %>%
+  mutate(author = factor(author, levels = c("Galilei, Galileo",
+                                            "Huygens, Christiaan",
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+
+ggplot(plot_physics, aes(word, tf_idf, fill = author)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~author, ncol = 2, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+```{r}
+library(tidyr)
+
+frequency <- bind_rows(mutate(plot_physics, author = "Galilei, Galileo"),
+                       mutate(plot_physics, author = "Tesla, Nikola"), 
+                       mutate(plot_physics, author = "Einstein, Albert")) %>% 
+  mutate(word = str_extract(word, "[a-z']+")) %>%
+  count(author, word) %>%
+  group_by(author) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  spread(author, proportion) %>% 
+  gather(author, proportion, `Galilei, Galileo`:`Tesla, Nikola`)
+```
+
+```{r}
+library(scales)
+
+# expect a warning about rows with missing values being removed
+ggplot(frequency, aes(x = proportion, y = `Einstein, Albert`, color = abs(`Einstein, Albert` - proportion))) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), low = "darkslategray4", high = "gray75") +
+  facet_wrap(~author, ncol = 2) +
+  theme(legend.position="none") +
+  labs(y = "Einstein, Albert", x = NULL)
+```
+
+```{r}
+physics_bigrams <- physics %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+physics_bigrams
+```
+
+```{r}
+physics_bigrams%>%
+  count(bigram, sort = TRUE)
+```
+
+```{r}
+library(tidyr)
+
+bigrams_separated <- physics_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+
+bigram_counts
+```
+
+```{r}
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigrams_united
+```
+
+```{r}
+physics %>%
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) %>%
+  separate(trigram, c("word1", "word2", "word3"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !word3 %in% stop_words$word) %>%
+  count(word1, word2, word3, sort = TRUE)
+```
+
+```{r}
+bigrams_filtered %>%
+  filter(word2 == "angle") %>%
+  count(author, word1, sort = TRUE)
+```
+Row {data-height=600}
+------------------------------------------------------------------------------
+
+### Chart 3
+
+```{r}
+bigram_tf_idf <- bigrams_united %>%
+  count(author, bigram) %>%
+  bind_tf_idf(bigram, author, n) %>%
+  arrange(desc(tf_idf))
+
+bigram_tf_idf
+```
+```{r}
+library(igraph)
+
+bigram_graph <- bigram_counts %>%
+  filter(n > 20) %>%
+  graph_from_data_frame()
+
+bigram_graph
+```
+Row {data-height=600}
+------------------------------------------------------------------------------
+
+### Chart 4
+
+```{r}
+library(ggraph)
+set.seed(2000)
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+```
+
+Row {data-height=600}
+------------------------------------------------------------------------------
+
+### Chart 5 
+
+```{r}
+set.seed(2000)
+
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme_void()
+```
+
+
+#**************************************************************************
+#                    Citations
+#**************************************************************************
+
+This project is heavily adapted from the [website](https://www.tidytextmining.com/) for Text Mining with R! Visit the [GitHub repository](https://github.com/dgrtwo/tidy-text-mining) for this site, find the [book at O’Reilly](http://shop.oreilly.com/product/0636920067153.do?cmp=af-strata-books-video-product_cj_0636920067153_4428796), or buy it on [https://www.amazon.com/gp/product/1491981652/ref=as_li_tl?ie=UTF8&tag=juliasilge-20&camp=1789&creative=9325&linkCode=as2&creativeASIN=1491981652&linkId=0e92d44b0aa39ab34608ffa582dbd490](Amazon).
+
+
+citation("dplyr")
+citation("tidytext")
+citation("ggplot2")
+citation("gutenbergr")
+citation("forcats")
+citation("stringr")
+citation("wordcloud")
+citation("tidyr")
+citation("igraph")
+citation("ggraph")
+
+#Silge J. and Robinson D. (2017) Text Mining with R: A Tidy Approach (1st. ed.). O’Reilly Media, Inc.
