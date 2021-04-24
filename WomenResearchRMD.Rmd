@@ -1,0 +1,131 @@
+---
+title: "WomenResearch"
+author: "Jajwalya Karajgikar"
+date: "3/9/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Read data
+
+```{r}
+library(tidyverse)
+d <- read_csv("Economist_women-research.csv")
+d
+```
+# Manipulate data
+
+```{r}
+library(dplyr)
+drop <- ("Country")
+data <- d %>% 
+  modify_at(drop,~NULL)
+```
+
+```{r}
+colnames(data)[4] <- "CS & Math"
+colnames(data)[5] <- "Inventors"
+```
+
+```{r}
+view(data)
+
+drop <- ("Inventors")
+data1 <- data %>% 
+  modify_at(drop,~NULL)
+```
+
+### Inventors dataset
+
+```{r}
+extractInventors <- c("Inventors", "row")
+inventorData <- cbind(num, inventors, addData)
+inventorData
+```
+
+```{r}
+library(reshape2)
+data1$row <- seq_len(nrow(data1))
+data2 <- melt(data1, id.vars = "row")
+data2
+```
+
+```{r}
+colnames(data2)[1] <- "num"
+
+num <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+num
+
+addData <- d %>% select(1)
+addData
+
+numberedData <- cbind(num, addData)
+numberedData
+
+finalData <- full_join(numberedData, data2,
+                       by="num")
+
+view(finalData)
+
+fd <- finalData %>% group_by(value)
+fd
+```
+
+#Plot data
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+library(ggthemes)
+library(wesanderson)
+library("viridis")  
+library(gghighlight)
+
+
+womenData <- ggplot() + 
+  geom_col(data = fd, aes(x = reorder(Country, value), 
+                          y = value, 
+                          fill = variable), 
+           position="dodge") +
+    labs(title = "Still a man's world", 
+       subtitle = "Women among researchers with papers published*\n2011-2015", 
+       caption = "Sources: 'Gender in the Global Research Landscape' by Elsevier; The Economist
+                  \n*Indexed in Scopus",
+       fill = "% of Total:")  +
+  geom_hline(data = fd, aes(x = reorder(Country, value), y = value), 
+             yintercept = 0.5, color = "#ef8a62") +    
+  geom_point(data = inventorData, 
+             aes(x=reorder(Country,row),
+                 y=Inventors), 
+  shape = 23, size = 4, fill = "#FC4E07") +
+  xlab("\n") +
+  ylab("\n") +
+  expand_limits(y=c(0,0.75)) +
+  scale_color_viridis(discrete = TRUE, option = "-D") +
+  scale_fill_viridis(discrete = TRUE) +
+  theme_economist() +
+  scale_colour_economist() +
+  scale_y_continuous(breaks = c(0, 0.25, 0.50, 0.75), labels = scales::percent_format()) +
+  coord_flip() 
+
+womenData + theme(legend.text = element_text(size=9))
+
+ggsave("WomenInResearch.png", width = 13, height = 6, dpi = 2400)
+```
+
+
+## References
+```{r}
+citation(package="tidyverse")
+citation(package="dplyr")
+citation(package="reshape2")
+citation(package="ggplot2")
+citation(package="RColorBrewer")
+citation(package="ggthemes")
+citation(package="viridis")  
+citation(package="gghighlight")
+
+```
