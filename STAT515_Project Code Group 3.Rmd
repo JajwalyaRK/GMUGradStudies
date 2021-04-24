@@ -1,0 +1,577 @@
+---
+title: "STAT 515 Final Project Code"
+author: "Matthew Ludwig, Firas Al Bakhat, Jajwalya Karajgikar, and Matthew Miller"
+date: "May 15, 2020"
+output: pdf_document
+---
+
+
+Libraring the package where the dataset is kept
+Opening up the documentation for the dataset
+```{r}
+#install.packages("traineR")
+library(Ecdat)
+library(MASS)
+library(tidyverse)
+
+?PSID
+str(PSID)
+names(PSID)
+length(PSID)
+```
+
+```{r}
+Data <- PSID
+str(Data)
+Data <- Data[complete.cases(Data), ]
+Data2 <- Data[!(Data$kids >= 98 | Data$educatn >= 98),]
+Data$marriedN <- as.numeric(as.factor(Data$married))
+```
+
+```{r}
+library(randomForest)
+
+set.seed(1)
+train = sample(1:nrow(Data2),nrow(Data2)/2)
+Data2Test = Data$earnings[-train]
+length(train)
+```
+
+```{r}
+set.seed(123)
+bag.psid <- randomForest(earnings~., Data2, 
+                        subset = train, 
+                        mtry = 4,
+                        importance = TRUE,
+                        ntree=500)
+bag.psid
+```
+
+```{r}
+set.seed(123)
+Data2 <- dplyr::select(Data2,earnings,everything())
+bag.psid=randomForest(x=Data2[train,-1],
+                        y=Data2[train,1],
+                        data=Data2,
+                        mtry=4,importance=TRUE)
+bag.psid
+```
+```{r}
+psid.test=Data2[-train,"earnings"]
+yhat.bag = predict(bag.psid,newdata=Data2[-train,])
+mean((yhat.bag-psid.test)^2)
+```
+
+```{r}
+ggplot(data.frame(yhat.bag, psid.test), 
+       aes(x=yhat.bag, y=psid.test)) +
+  geom_point() +
+  geom_abline(slope=1,intercept=0) +
+  labs(x="predicted earnings",
+       y="test-set earnings",         
+       title="regression tree")
+```
+
+```{r}
+set.seed(123)
+bag.psid=randomForest(earnings~.,data=Data2, subset=train, 
+                      mtry=4, ntree=25)
+yhat.bag = predict(bag.psid,newdata=Data2[-train,])
+mean((yhat.bag-psid.test)^2)
+```
+
+```{r}
+set.seed(123)
+rf.psid=randomForest(earnings~.,data=Data2, subset=train, 
+                     mtry=6, importance=TRUE)
+yhat.rf = predict(rf.psid, newdata=Data2[-train,])
+mean((yhat.rf-psid.test)^2)
+```
+
+```{r}
+importance(rf.psid)
+varImpPlot(rf.psid)
+```
+
+```{r}
+set.seed(123)
+rf.psid=randomForest(earnings~.,data=Data2,subset=train,mtry=6,                        importance=TRUE)
+yhat.rf = predict(rf.psid,newdata = Data2[-train,])
+mean((yhat.rf-psid.test)^2)
+```
+
+```{r}
+Data3 <- dplyr::select(Data2,earnings,hours,educatn,intnum,kids)
+set.seed(123)
+rf.psid3=randomForest(x=Data3[train,-1],
+                      y=Data3[train,1],      
+                      data=Data3,     
+                      mtry=2,importance=TRUE)
+yhat.rf3 = predict(rf.psid3, newdata=Data3[-train,])
+psid.test3=Data3[-train,"earnings"]
+mean((yhat.rf3-psid.test3)^2)
+```
+Lasso regression using Data3
+
+```{r}
+
+library(glmnet)
+
+
+# Find the best lambda using cross-validation
+set.seed(123) 
+cv.lasso3 <- cv.glmnet(x=as.matrix(Data3[train,-1]),
+                      y=Data3[train,1], alpha = 1,
+                      standardize = TRUE)
+
+# Fit the final model on the training data
+model_lasso3 <- glmnet(x=as.matrix(Data3[train,-1]),
+                y=Data3[train,1], 
+                alpha = 1, family = "gaussian",
+                lambda = cv.lasso3$lambda.min,
+                standardize = TRUE)
+model_lasso3
+coef(model_lasso3)
+
+#predicting using test set
+pred<-predict(model_lasso3,newx=as.matrix(Data3[-train,-1]))
+
+#calculating r square
+SSerr<-sum((pred - Data3[-train,1])^2)
+SStot<-sum((Data3[-train,1] - mean(Data3[-train,1]))^2)
+R_square <- 1 - SSerr / SStot
+R_square
+```
+```{r}
+#plotting different variables in the dataset
+hist(Data3$earnings,col="lightblue",main="Earnings",xlab="Earnings")
+hist(Data3$hours,col="lightblue",main="Hours",xlab="Hours")
+hist(Data3$educatn,col="lightblue",main="Education",xlab="Education")
+hist(Data3$intnum,col="lightblue",main="Interview number",xlab="Interview number")
+hist(Data3$kids,col="lightblue",main="Kids",xlab="Kids")
+
+#plotting relationships
+plot(Data3$hours,Data3$earnings,xlab="Hours",ylab="Earnings",main="Earnings vs Hours",pch=20)
+plot(Data3$educatn,Data3$earnings,xlab="Education",ylab="Earnings",main="Earnings vs Education",pch=20)
+plot(Data3$intnum,Data3$earnings,xlab="Interview number",ylab="Earnings",main="Earnings vs Interview number",pch=20)
+plot(Data3$kids,Data3$earnings,xlab="Kids",ylab="Earnings",main="Earnings vs Kids",pch=20)
+```
+#########################################################################################
+
+Begin Decision Tree and Random Forest
+
+Creating a random forest to predict whether an individual is married or not
+```{r}
+
+set.seed(123)
+mar_rf = randomForest(married~., data=PSID, 
+                      importance=TRUE,
+                      proximity=TRUE,
+                      na.action = na.roughfix)
+mar_rf
+importance(mar_rf)
+
+```
+
+
+########################################################################################################################################################
+Mulitple Linear Regression
+
+Can earnings be better predicted using more  than one factor -- if so,  what are the factors?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading Packages
+```{r}
+library(dplyr) #data manipulation
+library(tidyverse) #data/dataframe manipulation
+library(Ecdat) #dataset
+library(GGally) #ggscatmat()
+library(MASS) #studres()
+library(lmtest) #bptest()
+library(rlist) #list.append()
+library(forecast) #BoxCox.lambda
+library(DAAG) #K-fold CV
+```
+
+Read in Data
+```{r}
+data <- PSID
+```
+
+"intnum": 4-9306
+"persnum": 1-205
+"age": 30-50
+"educatn":  0-9 (has 98/99 values)
+"earnings": 0-240000
+"hours": 0-5160 
+"kids":  0-10 (98-99 values present)  
+"married": married, never married, widowed,divorced, separated, NA/DF	(9),no histories 
+
+
+Tidying Data
+
+1) removing all incomplete rows (NAs)
+2) removing rows with a kid count or education of 98/99
+3) making married a numerical factor column
+4) removing rows where hours != 0 AND earnings == 0
+5) make educatn a factor variable
+```{r}
+#1
+data <- data[complete.cases(data), ]
+#2
+data <- data[!(data$kids >= 98 | data$educatn >= 98),]
+#3
+data$marriedN <- as.numeric(as.factor(data$married))
+#4
+data <- data[!(data$hours != 0 & data$earnings == 0),]
+#5
+data$educatn <- as.numeric(as.factor(data$educatn))
+
+message("done")
+```
+
+Multilinear Regression to Predict Earnings
+
+create the linear model using all features to predict earnings
+```{r}
+earn.lm <- lm(earnings ~ .-married, data = data)
+summary(earn.lm)
+```
+
+diagnostic plots for our model
+```{r}
+plot(earn.lm)
+```
+Notes:
+
+Residuals vs. Fitted: (linearity assumption) suggests some nonlinearity as the residuals show a slight systematic pattern. Luckily, our R_squared is below 0.6. Because our R_squared is close to 0.4, then the impacts of non linearity are slightly less severe and resulting biases may be small relative to associated standard errors.
+To fix this nonlinearity, we could take the logs of both x and y and/or use the box-cox transformation
+Also shows that residuals do not have equal-variances and are heteroscedastic
+
+
+Normal Q-Q:(normality assumption) residuals are skewed. Because we have one long tail in our Q-Q plot, there exists more extreme values than what is expected for normal data. If the linear assumptions were not violated, one would expect the points to stay close to the diagonal line with a slight “s” shape. Because this Q-Q plot does not have that, the normality assumption is violated.  
+```{r}
+#histogram of qq plot
+eresid <- studres(earn.lm)
+hist(eresid, freq=FALSE,
+   main="Distribution of Studentized Residuals")
+xfit<-seq(min(eresid),max(eresid))
+yfit<-dnorm(xfit)
+lines(xfit, yfit)
+```
+to detect large-residual outliers
+Plot the standardized residual of the linear regression model 
+```{r}
+earn.stdres = rstandard(earn.lm)
+```
+```{r}
+plot(data$earnings, earn.stdres,
+     ylab="Standardized Residuals",
+     xlab="Predicted Earnings")
+abline(0, 0)
+```
+This plot further shows that we have a nonlinearity problem -- points again to transformation or the need for a non-linear model 
+
+
+Scale-Location: (equal-variances // homoscedasticity) definitely heteroscedastic
+To fix this: Use weighted least squares estimation
+
+Residuals vs Leverage:(normality assumption) no points outside of cooks distance..yay
+
+so...it may not be the best data to predict earnings, but
+
+Feature selection via backwards model selection
+
+```{r}
+step(earn.lm, direction = "backward")
+```
+our backwards selection only removed two features: persnum & married
+```{r}
+earn.lm.bw <- update(earn.lm, .~. -persnum -marriedN)
+```
+```{r}
+summary(earn.lm.bw)
+```
+taking a look at our new diagnostic plots
+```{r}
+plot(earn.lm)
+```
+
+```{r}
+plot(earn.lm.bw)
+```
+very little change in the diagnostics plots. still have increasing variation in residuals. Any chance of a good linear model here will have to come via transformations
+
+Doing a log Transformation on the model
+A log transformation would be reasonable as log(Y) is a common stabilizing transformation in cases where the variance increases (see residuals vs fitted above)
+```{r}
+#log(Y)
+data$earningslog <- log(data$earnings + min(data$earnings + 1))
+
+earn.log.lm <- lm(earningslog ~ .-married-earnings-persnum, data = data)
+```
+because there were 0 values in the earnings column, log(earnings) produced an error, so a transformed column was produced
+```{r}
+#adding a constant to a logged value does nothing, unless that number is 0
+data %>%
+  dplyr::select(earnings) %>%
+  mutate(earn_log = log(earnings)) %>%
+  mutate(earn_log2 = log(earnings + min(earnings + 1)))
+  
+```
+
+```{r}
+summary(earn.log.lm)
+```
+```{r}
+plot(earn.log.lm)
+```
+Although our QQ plot looks a little better, our residuals look worse in  a sense 
+
+At this point, we could try to do a log~log transformation, boxcox transformation, a log & boxcox transformation, or use a weighted least-squares esimation (to fix variance issues)
+
+Trying a log(Y)~log(x)
+
+```{r}
+sum(data$intnum ==  0)
+sum(data$age == 0)
+sum(data$educatn == 0)
+sum(data$hours == 0)
+sum(data$kids == 0)
+sum(data$marriedN == 0)
+```
+since hours and kids both have 0 values, we must adjust them so we can take the log. We can do this by adding a constant (same as above)
+
+```{r}
+#log(Y)~log({x})
+data$hourslog <- log(data$hours + min(data$hours + 1))
+data$kidslog <- log(data$kids + min(data$kids + 1))
+```
+
+
+```{r}
+#creating the model
+earn.loglog.lm <- lm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     data = data)
+```
+
+```{r}
+summary(earn.loglog.lm)
+```
+```{r}
+plot(earn.loglog.lm)
+```
+QQ plot looks good now,shape looks a better, equal variance is still an issue
+
+Weighted least squares estimation
+ Determining which features have heteroscedasticity
+we can do this quickly with the Breusch-Pagan test
+
+How to interpret:
+A significant result (p < 0.05) indicates that variance scales with x1, and use of WLS is justified
+```{r}
+bptest(earningslog ~ log(intnum), data = data)
+bptest(earningslog ~ log(age), data = data)
+bptest(earningslog ~ log(educatn), data = data)
+bptest(earningslog ~ hourslog, data = data)
+bptest(earningslog ~ kidslog, data = data)
+```
+of the 5 independent features, only 1 (age) does not scale with variance...may or may not be important
+
+
+
+```{r}
+wts     <- 1/fitted(lm(abs(residuals(earn.loglog.lm))~fitted(earn.loglog.lm)))^2
+#idea to do weights likethis from: https://online.stat.psu.edu/stat462/node/266/
+```
+
+
+```{r}
+#weighted log-log model
+earn.loglog.wls.lm <- rlm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     weights = wts,
+                     data = data)
+```
+
+```{r}
+summary(earn.loglog.wls.lm)
+plot(earn.loglog.wls.lm)
+```
+Note: as of now, after a prediction is made it would have to be transformed back via
+exp(x)
+
+
+
+ Could maybe Do a boxcox Transformation on the model
+
+ Since there were a lot of earnings == 0, lets get rid of those to see how it impacts our model
+
+```{r}
+data2 <- data %>%
+  filter(earnings > 0)
+```
+
+```{r}
+#creating the model
+earn.loglog.lm2 <- lm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     data = data2)
+```
+
+```{r}
+wts2     <- 1/fitted(lm(abs(residuals(earn.loglog.lm2))~fitted(earn.loglog.lm2)))^2
+#idea to do weights likethis from: https://online.stat.psu.edu/stat462/node/266/
+```
+
+
+```{r}
+#weighted log-log model
+earn.loglog.wls.lm2 <- rlm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     weights = wts2,
+                     data = data2)
+```
+
+```{r}
+summary(earn.loglog.wls.lm2)
+plot(earn.loglog.wls.lm2)
+```
+our variance does look better now.
+
+ Predictions
+ Train-Test sets
+```{r}
+## set the random seed -- if desired
+set.seed(274)
+```
+
+```{r}
+# 80/20
+
+train_size <- floor(0.80 * nrow(data2))
+
+
+train_ind <- sample(seq_len(nrow(data2)), size = train_size)
+
+data.train <- data2[train_ind, ]
+data.test <- data2[-train_ind, ]
+```
+
+
+
+ Making our models from the training set
+
+```{r}
+#creating the log log model
+earn.loglog.lm2 <- lm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     data = data.train)
+```
+
+```{r}
+wts2     <- 1/fitted(lm(abs(residuals(earn.loglog.lm2))~fitted(earn.loglog.lm2)))^2
+#idea to do weights likethis from: https://online.stat.psu.edu/stat462/node/266/
+```
+
+
+```{r}
+#weighted log-log model
+earn.loglog.wls.lm2 <- rlm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     weights = wts2,
+                     data = data.train)
+```
+
+```{r}
+summary(earn.loglog.wls.lm2)
+plot(earn.loglog.wls.lm2)
+```
+
+
+```{r}
+anova(earn.loglog.wls.lm2)
+```
+
+```{r}
+AIC(earn.loglog.wls.lm2)
+BIC(earn.loglog.wls.lm2)
+```
+
+ Making predictions
+```{r}
+predictions <- predict(earn.loglog.wls.lm2, data.test)
+#SINCE WE DID A LOG LOG TRANSFORM, we have to transform it back
+predictions <- exp(predictions)
+```
+```{r}
+summary(earn.loglog.wls.lm2)
+```
+
+```{r}
+rmse <- sqrt(sum((predictions - data.test$earnings)^2) /
+               length(data.test$earnings))
+c(RMSE = rmse)
+```
+
+```{r}
+plot(data.test$earnings, predictions)
+```
+
+```{r}
+accuracy_df <- data.frame(cbind(actuals = data.test$earnings, predicteds = predictions))
+```
+```{r}
+cor(accuracy_df)
+```
+This shows that the actual values and predictedvalues have 66.3% correlation
+
+
+Min-Max accuracy
+```{r}
+min_max <- mean(apply(accuracy_df, 1, min) / apply(accuracy_df, 1, max))  
+print(min_max) # show the result
+```
+Given that a value of 1 would mean a near perfect prediction, this model is still not as elegant as desired
+
+```{r}
+mape <- mean(abs((accuracy_df$predicteds - accuracy_df$actuals))/accuracy_df$actuals)
+print(mape) # show the result
+```
+
+
+ K-fold Cross-validation 
+used to estimate test error
+
+```{r}
+fit <- lm(earningslog ~ 
+                       log(intnum) + log(age) + log(educatn) + hourslog +
+                       kidslog + log(marriedN) 
+                     - married - earnings - persnum - hours - kids,
+                     weights = wts2,
+                     data = data.train)
+k_fold <- CVlm(data=data.train , fit , m=5,
+               plotit =  TRUE, printit = FALSE,
+               main =  " ") # 5 fold cross-validation
+```
+although the points are not over dispersed for one particular color (or sample) the lines do vary with respect to  the slope.
+
+```{r}
+attr(k_fold,"ms")
+```
